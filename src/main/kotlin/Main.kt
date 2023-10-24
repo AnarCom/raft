@@ -211,8 +211,6 @@ fun main(args: Array<String>) {
     var epochCounter: ULong = 0U
     var nodeState = ProgramState.FOLLOWER
     var master = 0
-    // отказаться от этой мапы, исходя из того, что если эпоха больше, то мы еще не голосовали
-    val isVoted: MutableMap<ULong, Boolean> = mutableMapOf()
     // if == -1 -> мы не запрашивали голосование -> игнорируем запросы
     var votesCounter = -1
 
@@ -249,13 +247,11 @@ fun main(args: Array<String>) {
 
                         is VoteRequest -> {
                             val voteResult = messageData.epochCount.let { messageEpoch ->
-                                isVoted[epochCounter].let {
-                                    if ((it == false || it == null) && epochCounter < messageEpoch) {
-                                        isVoted[epochCounter] = true
-                                        true
-                                    } else {
-                                        false
-                                    }
+                                if(messageEpoch > epochCounter) {
+                                    epochCounter = messageEpoch
+                                    true
+                                } else {
+                                    false
                                 }
                             }
                             writeToSocketChanel(
