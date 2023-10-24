@@ -112,7 +112,6 @@ fun connectToAll(currentPort: Int, programCount: Int, selector: Selector, connec
                 println("connecting to $it")
                 val client = SocketChannel.open(InetSocketAddress("localhost", it))
                 client.configureBlocking(false)
-//                client.write(ByteBuffer.wrap(mapper.writeValueAsBytes(JsonMessage(currentPort))))
                 writeToSocketChanel(client, JsonMessage(currentPort), mapper)
                 val key = client.register(selector, SelectionKey.OP_READ)
                 key.attach(it)
@@ -139,31 +138,9 @@ fun sendLogToAll(
     println(connections.keys)
     connections.values.forEach {
         writeToSocketChanel(it, RegisterLog(nodeIdentification, epochCount, data.first, data.second), mapper)
-//        it.write(
-//            ByteBuffer.wrap(
-//                mapper.writeValueAsBytes(RegisterLog(nodeIdentification, epochCount, data.first, data.second))
-//            )
-//        )
     }
 }
 
-//fun readFromSocket(connection: SocketChannel, mapper: ObjectMapper): JsonMessage? = try {
-//    val byteBuffer = ByteBuffer.allocate(1024)
-//    val read = connection.read(byteBuffer)
-//    if (read == -1) {
-//        null
-//    } else {
-//        byteBuffer.flip()
-//        val json = String(byteBuffer.array().filter { it != 0.toByte() }.toByteArray())
-//        mapper.readValue<JsonMessage>(json).apply {
-//            if (this !is HeartBeat) {
-//                println(json)
-//            }
-//        }
-//    }
-//} catch (e: Exception) {
-//    null
-//}
 fun readFromSocket(connection: SocketChannel, mapper: ObjectMapper): JsonMessage? =
     try {
         val sizeBuffer = ByteBuffer.allocate(Int.SIZE_BYTES)
@@ -206,11 +183,6 @@ fun writeToSocketChanel(
         }
         socketChannel.write(
             buffer
-//            ByteBuffer.wrap(
-//                mapper.writeValueAsBytes(
-//                    data
-//                )
-//            )
         )
     } catch (e: Exception) {
         println("catch on sending: $e")
@@ -260,9 +232,6 @@ fun main(args: Array<String>) {
             } else if (key.isReadable) {
                 val client = key.channel() as SocketChannel
                 val messageData = readFromSocket(client, mapper)
-//                val byteBuffer = ByteBuffer.allocate(1024)
-//                val read = client.read(byteBuffer)
-//                if (read == -1) {
                 if (messageData == null) {
                     if (key.attachment() != null) {
                         println("detached ${key.attachment()}")
@@ -271,11 +240,6 @@ fun main(args: Array<String>) {
                     }
                     client.close()
                 } else {
-//                    byteBuffer.flip()
-
-//                    val json = String(byteBuffer.array().filter { it != 0.toByte() }.toByteArray())
-//                    println(json)
-//                    when (val messageData = mapper.readValue<JsonMessage>(json)) {
                     when (messageData) {
                         is HeartBeat -> {
                             //TODO: check that
@@ -303,17 +267,6 @@ fun main(args: Array<String>) {
                                 ),
                                 mapper
                             )
-//                            client.write(
-//                                ByteBuffer.wrap(
-//                                    mapper.writeValueAsBytes(
-//                                        VoteAnswer(
-//                                            currentPort,
-//                                            epochCounter,
-//                                            voteResult
-//                                        )
-//                                    )
-//                                )
-//                            )
                             epochStarted = Instant.now()
                         }
 
@@ -364,13 +317,6 @@ fun main(args: Array<String>) {
                                         RegisterLog(currentPort, epochCounter, logEntry.first, logEntry.second),
                                         mapper
                                     )
-//                                    client.write(
-//                                        ByteBuffer.wrap(
-//                                            mapper.writeValueAsBytes(
-//                                                RegisterLog(currentPort, epochCounter, logEntry.first, logEntry.second)
-//                                            )
-//                                        )
-//                                    )
                                 }
                             }
                         }
@@ -402,19 +348,6 @@ fun main(args: Array<String>) {
                                     mapper
                                 )
                             }
-
-//                            connections[master]!!.write(
-//                                ByteBuffer.wrap(
-//                                    mapper.writeValueAsBytes(
-//                                        RegisterLog(
-//                                            currentPort,
-//                                            epochCounter,
-//                                            command[1],
-//                                            command[2]
-//                                        )
-//                                    )
-//                                )
-//                            )
                         } else if (nodeState == ProgramState.LEADER) {
                             Pair(command[1], command[2]).let {
                                 log.add(it)
@@ -455,19 +388,6 @@ fun main(args: Array<String>) {
                                     mapper
                                 )
                             }
-//                            connections[master]!!.write(
-//                                ByteBuffer.wrap(
-//                                    mapper.writeValueAsBytes(
-//                                        CasRequest(
-//                                            currentPort,
-//                                            epochCounter,
-//                                            key,
-//                                            newValue,
-//                                            oldValue
-//                                        )
-//                                    )
-//                                )
-//                            )
                         }
                     }
 
@@ -491,7 +411,6 @@ fun main(args: Array<String>) {
                                 VoteRequest(currentPort, epochCounter),
                                 mapper
                             )
-//                            it.write(ByteBuffer.wrap(mapper.writeValueAsBytes(VoteRequest(currentPort, epochCounter))))
                         }
                         votesCounter = 1
                     }
@@ -513,7 +432,6 @@ fun main(args: Array<String>) {
                             HeartBeat(currentPort, epochCounter),
                             mapper
                         )
-//                        it.write(ByteBuffer.wrap(mapper.writeValueAsBytes(HeartBeat(currentPort, epochCounter))))
                     }
                     epochStarted = Instant.now()
                 }
