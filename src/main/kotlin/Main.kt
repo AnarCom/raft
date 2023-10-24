@@ -13,7 +13,6 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.Exception
 import kotlin.concurrent.thread
-import kotlin.math.ceil
 
 const val ELECTION_TIMEOUT_MS = 1000
 
@@ -52,14 +51,12 @@ fun connectToAll(currentPort: Int, programCount: Int, selector: Selector, connec
 
 fun sendLogToAll(
     connections: Map<Int, SocketChannel>,
-    data: Pair<String, String>,
-    nodeIdentification: Int,
-    epochCount: ULong,
+    data: LogEntity,
     mapper: ObjectMapper
 ) {
     println(connections.keys)
     connections.values.forEach {
-        writeToSocketChanel(it, RegisterLog(nodeIdentification, epochCount, data.first, data.second), mapper)
+        writeToSocketChanel(it, data, mapper)
     }
 }
 
@@ -101,6 +98,7 @@ fun writeToSocketChanel(
             flip()
         }
         if (data !is HeartBeat) {
+            println("write")
             formatHexDump(buffer.array())
         }
         socketChannel.write(
@@ -112,11 +110,11 @@ fun writeToSocketChanel(
 }
 
 
-val log = mutableListOf<Pair<String, String>>()
 fun main(args: Array<String>) {
 
     val currentPort = args[1].toInt()
     val nPrograms = args[0].toInt()
+    val logStorage = LogStorage(currentPort)
     println("starting server")
     val selector = Selector.open()
     val serverSocketChanel = ServerSocketChannel.open()
@@ -137,7 +135,6 @@ fun main(args: Array<String>) {
     var votesCounter = -1
 
     val bufferedReader = System.`in`.bufferedReader()
-    val logCache = mutableMapOf<String, String>()
 
     while (true) {
         selector.select(100)
@@ -163,13 +160,14 @@ fun main(args: Array<String>) {
                     if (
                         messageData is MessageWithEpoch
                         && nodeState == ProgramState.LEADER
-                        && epochCounter <= messageData.epochCount
+                        && epochCounter < messageData.epochCount
                     ) {
                         nodeState = ProgramState.FOLLOWER
+                        master = messageData.nodeIdentification
+                        println("another master")
                     }
                     when (messageData) {
                         is HeartBeat -> {
-                            //TODO: check that
                             epochStarted = Instant.now()
                             master = messageData.nodeIdentification
                         }
@@ -199,8 +197,9 @@ fun main(args: Array<String>) {
                             if (votesCounter != -1 && messageData.voteResult) {
                                 votesCounter++
                             }
-                            println("quota ${ceil(nPrograms.toDouble() / 2.toDouble()).toInt()}")
-                            if (votesCounter >= ceil(nPrograms.toDouble() / 2.toDouble()).toInt()) {
+                            val quota = (nPrograms.toDouble() / 2.toDouble()).toInt() + 1
+                            println("quota $quota")
+                            if (votesCounter >= quota) {
                                 nodeState = ProgramState.LEADER
                                 votesCounter = -1
                                 epochStarted = Instant.now()
@@ -208,38 +207,70 @@ fun main(args: Array<String>) {
                             }
                         }
 
-                        is RegisterLog -> {
-                            Pair(messageData.key, messageData.value).let {
-                                //move operations into class
-                                log.add(it)
-                                logCache[it.first] = it.second
-                                if (nodeState == ProgramState.LEADER) {
-                                    sendLogToAll(connections, it, currentPort, epochCounter, mapper)
+                        is AddLogRequest -> {
+                            if (nodeState == ProgramState.LEADER) {
+                                val logEntity = logStorage.addLog(
+                                    messageData.key,
+                                    messageData.value,
+                                    epochCounter
+                                )
+                                sendLogToAll(connections, logEntity, mapper)
+                            }
+                        }
+
+                        is LogEntity -> {
+                            if (!logStorage.addLog(messageData)) {
+                                connections[master]?.apply {
+                                    writeToSocketChanel(this, RevalidateLogRequest(currentPort), mapper)
+                                }
+                            }
+                        }
+
+                        is RevalidateLogRequest -> {
+                            if (nodeState == ProgramState.LEADER) {
+                                connections[messageData.nodeIdentification]?.apply {
+                                    writeToSocketChanel(
+                                        this,
+                                        LogJournal(
+                                            currentPort,
+                                            epochCounter,
+                                            logStorage.getAllLogs()
+                                        ),
+                                        mapper
+                                    )
                                 }
                             }
                         }
 
                         is CasRequest -> {
                             if (nodeState == ProgramState.LEADER) {
-                                if (logCache[messageData.key] == messageData.expectedValue) {
-                                    Pair(messageData.key, messageData.value).let {
-                                        log.add(it)
-                                        logCache[it.first] = it.second
-                                        sendLogToAll(connections, it, currentPort, epochCounter, mapper)
-                                    }
+                                logStorage.casOperation(
+                                    messageData,
+                                    epochCounter
+                                )?.apply {
+                                    sendLogToAll(connections, this, mapper)
+                                    println("cas worked ok")
                                 }
                             }
+                        }
+
+                        is LogJournal -> {
+                            logStorage.revalidateLog(messageData)
                         }
 
                         is JsonMessage -> {
                             println("get new connection from ${messageData.nodeIdentification}")
                             connections[messageData.nodeIdentification] = client
                             key.attach(messageData.nodeIdentification)
-                            if (nodeState == ProgramState.LEADER) {
-                                for (logEntry in log) {
+                            if(nodeState == ProgramState.LEADER) {
+                                connections[messageData.nodeIdentification]?.apply {
                                     writeToSocketChanel(
-                                        client,
-                                        RegisterLog(currentPort, epochCounter, logEntry.first, logEntry.second),
+                                        this,
+                                        LogJournal(
+                                            currentPort,
+                                            epochCounter,
+                                            logStorage.getAllLogs()
+                                        ),
                                         mapper
                                     )
                                 }
@@ -260,11 +291,18 @@ fun main(args: Array<String>) {
             if (command.isNotEmpty()) {
                 when (command[0]) {
                     "set" -> {
-                        if (master > 100) {
-                            connections[master]?.let {
+                        if (nodeState == ProgramState.LEADER) {
+                            val entity = logStorage.addLog(command[1], command[2], epochCounter)
+                            sendLogToAll(
+                                connections,
+                                entity,
+                                mapper
+                            )
+                        } else {
+                            connections[master]?.apply {
                                 writeToSocketChanel(
-                                    it,
-                                    RegisterLog(
+                                    this,
+                                    AddLogRequest(
                                         currentPort,
                                         epochCounter,
                                         command[1],
@@ -273,43 +311,36 @@ fun main(args: Array<String>) {
                                     mapper
                                 )
                             }
-                        } else if (nodeState == ProgramState.LEADER) {
-                            Pair(command[1], command[2]).let {
-                                log.add(it)
-                                logCache[it.first] = it.second
-                                sendLogToAll(connections, it, currentPort, epochCounter, mapper)
-                            }
-                            println("added")
                         }
                     }
 
                     "get" -> {
-                        println("stored value: ${logCache[command[1]]}")
+                        println("stored value: ${logStorage.getValue(command[1])}")
                     }
 
                     "cas" -> {
                         val key = command[1]
                         val oldValue = command[2]
                         val newValue = command[3]
+                        val request = CasRequest(
+                            currentPort,
+                            epochCounter,
+                            key,
+                            newValue,
+                            oldValue
+                        )
                         if (nodeState == ProgramState.LEADER) {
-                            if (logCache[key] == oldValue) {
-                                Pair(key, newValue).let {
-                                    logCache[key] = newValue
-                                    log.add(it)
-                                    sendLogToAll(connections, it, currentPort, epochCounter, mapper)
-                                }
+                            logStorage.casOperation(
+                                request,
+                                epochCounter
+                            )?.apply {
+                                sendLogToAll(connections, this, mapper)
                             }
                         } else {
                             connections[master]?.let {
                                 writeToSocketChanel(
                                     it,
-                                    CasRequest(
-                                        currentPort,
-                                        epochCounter,
-                                        key,
-                                        newValue,
-                                        oldValue
-                                    ),
+                                    request,
                                     mapper
                                 )
                             }

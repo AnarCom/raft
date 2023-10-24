@@ -13,8 +13,11 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo
     JsonSubTypes.Type(value = VoteRequest::class, name = "vote_request"),
     JsonSubTypes.Type(value = VoteAnswer::class, name = "vote_answer"),
     JsonSubTypes.Type(value = HeartBeat::class, name = "heart_beat"),
-    JsonSubTypes.Type(value = RegisterLog::class, name = "register_log"),
-    JsonSubTypes.Type(value = CasRequest::class, name = "cas_request")
+    JsonSubTypes.Type(value = CasRequest::class, name = "cas_request"),
+    JsonSubTypes.Type(value = LogEntity::class, name = "log_entity"),
+    JsonSubTypes.Type(value = LogJournal::class, name = "log_journal"),
+    JsonSubTypes.Type(value = AddLogRequest::class, name = "add_log"),
+    JsonSubTypes.Type(value = RevalidateLogRequest::class, name = "revalidate_log")
 )
 open class JsonMessage(
     val nodeIdentification: Int,
@@ -56,16 +59,6 @@ class HeartBeat(
     constructor() : this(0, 0U)
 }
 
-class RegisterLog(
-    nodeIdentification: Int,
-    epochCount: ULong,
-    val key: String,
-    val value: String,
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U, "", "")
-}
-
 class CasRequest(
     nodeIdentification: Int,
     epochCount: ULong,
@@ -75,4 +68,38 @@ class CasRequest(
 ) : MessageWithEpoch(nodeIdentification, epochCount) {
     @JsonCreator
     constructor() : this(0, 0U, "", "", "")
+}
+
+class LogEntity(
+    nodeIdentification: Int,
+    epochCount: ULong,
+    val key: String,
+    val value: String,
+    val index: Int,
+) : MessageWithEpoch(nodeIdentification, epochCount) {
+    @JsonCreator
+    constructor() : this(0, 0U, "", "", 0)
+}
+
+class RevalidateLogRequest(
+    nodeIdentification: Int
+) : JsonMessage(nodeIdentification)
+
+class LogJournal(
+    nodeIdentification: Int,
+    epochCount: ULong,
+    val logs: List<LogEntity>,
+) : MessageWithEpoch(nodeIdentification, epochCount) {
+    @JsonCreator
+    constructor() : this(0, 0U, listOf())
+}
+
+class AddLogRequest(
+    nodeIdentification: Int,
+    epochCount: ULong,
+    val key: String,
+    val value: String,
+) : MessageWithEpoch(nodeIdentification, epochCount) {
+    @JsonCreator
+    constructor() : this(0, 0U, "", "")
 }
