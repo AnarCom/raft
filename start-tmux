@@ -1,0 +1,8 @@
+#!/bin/sh
+tmux kill-server
+tmux new-session -d 'nvim'
+tmux split-window -v 'nvim'
+tmux split-window -h
+tmux new-window 'nvim'
+tmux -2 attach-session -d
+
