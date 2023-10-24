@@ -1,6 +1,3 @@
-import com.fasterxml.jackson.annotation.JsonCreator
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
@@ -19,81 +16,6 @@ import kotlin.concurrent.thread
 import kotlin.math.ceil
 
 const val ELECTION_TIMEOUT_MS = 1000
-
-@JsonTypeInfo(
-    use = JsonTypeInfo.Id.NAME,
-    include = JsonTypeInfo.As.PROPERTY,
-    property = "type"
-)
-@JsonSubTypes(
-    JsonSubTypes.Type(value = JsonMessage::class, name = "hand_shake"),
-    JsonSubTypes.Type(value = MessageWithEpoch::class, name = "with_epoch"),
-    JsonSubTypes.Type(value = VoteRequest::class, name = "vote_request"),
-    JsonSubTypes.Type(value = VoteAnswer::class, name = "vote_answer"),
-    JsonSubTypes.Type(value = HeartBeat::class, name = "heart_beat"),
-    JsonSubTypes.Type(value = RegisterLog::class, name = "register_log"),
-    JsonSubTypes.Type(value = CasRequest::class, name = "cas_request")
-)
-open class JsonMessage(
-    val nodeIdentification: Int,
-) {
-    @JsonCreator
-    constructor() : this(0)
-}
-
-open class MessageWithEpoch(
-    nodeIdentification: Int,
-    val epochCount: ULong
-) : JsonMessage(nodeIdentification) {
-    @JsonCreator
-    constructor() : this(0, 0U)
-}
-
-class VoteRequest(
-    nodeIdentification: Int,
-    epochCount: ULong
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U)
-}
-
-class VoteAnswer(
-    nodeIdentification: Int,
-    epochCount: ULong,
-    val voteResult: Boolean
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U, false)
-}
-
-class HeartBeat(
-    nodeIdentification: Int,
-    epochCount: ULong
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U)
-}
-
-class RegisterLog(
-    nodeIdentification: Int,
-    epochCount: ULong,
-    val key: String,
-    val value: String,
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U, "", "")
-}
-
-class CasRequest(
-    nodeIdentification: Int,
-    epochCount: ULong,
-    val key: String,
-    val value: String,
-    val expectedValue: String,
-) : MessageWithEpoch(nodeIdentification, epochCount) {
-    @JsonCreator
-    constructor() : this(0, 0U, "", "", "")
-}
 
 enum class ProgramState {
     FOLLOWER,
@@ -154,7 +76,7 @@ fun readFromSocket(connection: SocketChannel, mapper: ObjectMapper): JsonMessage
             bufferForJson.flip()
             val str = String(bufferForJson.array().filter { it != 0.toByte() }.toByteArray())
             mapper.readValue<JsonMessage>(str).apply {
-                if(this !is HeartBeat) {
+                if (this !is HeartBeat) {
                     println(str)
                 }
             }
@@ -238,6 +160,13 @@ fun main(args: Array<String>) {
                     }
                     client.close()
                 } else {
+                    if (
+                        messageData is MessageWithEpoch
+                        && nodeState == ProgramState.LEADER
+                        && epochCounter <= messageData.epochCount
+                    ) {
+                        nodeState = ProgramState.FOLLOWER
+                    }
                     when (messageData) {
                         is HeartBeat -> {
                             //TODO: check that
@@ -247,7 +176,7 @@ fun main(args: Array<String>) {
 
                         is VoteRequest -> {
                             val voteResult = messageData.epochCount.let { messageEpoch ->
-                                if(messageEpoch > epochCounter) {
+                                if (messageEpoch > epochCounter) {
                                     epochCounter = messageEpoch
                                     true
                                 } else {
@@ -433,6 +362,5 @@ fun main(args: Array<String>) {
                 }
             }
         }
-
     }
 }
