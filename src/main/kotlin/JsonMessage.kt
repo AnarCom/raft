@@ -15,7 +15,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo
 )
 open class JsonMessage(
     val nodeIdentification: Int,
-    val epochCount: ULong
+    val termNumber: ULong,
 ) {
     @JsonCreator
     constructor() : this(0, 0U)
@@ -24,26 +24,36 @@ open class JsonMessage(
 
 class VoteRequest(
     nodeIdentification: Int,
-    epochCount: ULong
-) : JsonMessage(nodeIdentification, epochCount) {
+    termNumber: ULong,
+) : JsonMessage(nodeIdentification, termNumber) {
     @JsonCreator
     constructor() : this(0, 0U)
 }
 
 class VoteAnswer(
     nodeIdentification: Int,
-    epochCount: ULong,
-    val voteResult: Boolean
-) : JsonMessage(nodeIdentification, epochCount) {
+    termNumber: ULong,
+    val voteResult: Boolean,
+) : JsonMessage(nodeIdentification, termNumber) {
     @JsonCreator
     constructor() : this(0, 0U, false)
 }
 
 class HeartBeat(
     nodeIdentification: Int,
-    epochCount: ULong
-) : JsonMessage(nodeIdentification, epochCount) {
+    termNumber: ULong,
+    
+) : JsonMessage(nodeIdentification, termNumber) {
     @JsonCreator
     constructor() : this(0, 0U)
 }
 
+class LogEntryRequest(
+    val nodeIdentification: Int,
+    val termNumber: ULong,
+    val command: String,
+    val arguments: Array<String>,
+) {
+    @JsonCreator
+    constructor() : this(0, 0U, "", arrayOf())
+}

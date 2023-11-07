@@ -100,9 +100,15 @@ fun writeToSocketChanel(
 
 
 fun main(args: Array<String>) {
-
     val currentPort = args[1].toInt()
     val nPrograms = args[0].toInt()
+    val raftState = RaftState(
+        nodeState = ProgramState.FOLLOWER,
+        termStarted = Instant.now(),
+        termNumber = 0U,
+    )
+    val logJournal = LogJournal(raftState)
+
     println("starting server")
     val selector = Selector.open()
     val serverSocketChanel = ServerSocketChannel.open()
@@ -115,13 +121,9 @@ fun main(args: Array<String>) {
     connectToAll(currentPort, nPrograms, selector, connections)
     Thread.sleep(100)
     println("debug sleep finished")
-    var epochStarted = Instant.now()
-    var epochCounter: ULong = 0U
-    var nodeState = ProgramState.FOLLOWER
     var master = 0
     // if == -1 -> мы не запрашивали голосование -> игнорируем запросы
     var votesCounter = -1
-
     val bufferedReader = System.`in`.bufferedReader()
 
     while (true) {
@@ -148,14 +150,14 @@ fun main(args: Array<String>) {
                    // todo: add check for epoch
                     when (messageData) {
                         is HeartBeat -> {
-                            epochStarted = Instant.now()
+                            raftState.termStarted = Instant.now()
                             master = messageData.nodeIdentification
                         }
 
                         is VoteRequest -> {
-                            val voteResult = messageData.epochCount.let { messageEpoch ->
-                                if (messageEpoch > epochCounter) {
-                                    epochCounter = messageEpoch
+                            val voteResult = messageData.termNumber.let { messageEpoch ->
+                                if (messageEpoch > raftState.termNumber) {
+                                    raftState.termNumber = messageEpoch
                                     true
                                 } else {
                                     false
@@ -165,12 +167,12 @@ fun main(args: Array<String>) {
                                 client,
                                 VoteAnswer(
                                     currentPort,
-                                    epochCounter,
+                                    raftState.termNumber,
                                     voteResult
                                 ),
                                 mapper
                             )
-                            epochStarted = Instant.now()
+                            raftState.termStarted = Instant.now()
                         }
 
                         is VoteAnswer -> {
@@ -180,9 +182,9 @@ fun main(args: Array<String>) {
                             val quota = (nPrograms.toDouble() / 2.toDouble()).toInt() + 1
                             println("quota $quota")
                             if (votesCounter >= quota) {
-                                nodeState = ProgramState.LEADER
+                                raftState.nodeState = ProgramState.LEADER
                                 votesCounter = -1
-                                epochStarted = Instant.now()
+                                raftState.termStarted = Instant.now()
                                 println("I am now leader")
                             }
                         }
@@ -203,36 +205,41 @@ fun main(args: Array<String>) {
         }
         if (bufferedReader.ready()) {
             val command = bufferedReader.readLine().split(" ")
-            println("readed")
-            if (command.isNotEmpty()) {
-                when (command[0]) {
-                    "set" -> {
-                    }
+            if(raftState.nodeState != ProgramState.LEADER) {
+                println("Node is not leader")
+            } else {
+                println("readed")
+                if (command.isNotEmpty()) {
+                    when (command[0]) {
+                        "set" -> {
 
-                    "get" -> {
-                    }
+                        }
 
-                    "cas" -> {
-                    }
+                        "get" -> {
+                        }
 
-                    else -> {
-                        println("unknown command")
+                        "cas" -> {
+                        }
+
+                        else -> {
+                            println("unknown command")
+                        }
                     }
                 }
             }
         }
 
-        when (nodeState) {
+        when (raftState.nodeState) {
             ProgramState.FOLLOWER -> {
-                if (ChronoUnit.MILLIS.between(epochStarted, Instant.now()) > ELECTION_TIMEOUT_MS) {
+                if (raftState.isLeaderDead()) {
                     if (connections.keys.size > 0) {
-                        epochStarted = Instant.now()
-                        nodeState = ProgramState.CANDIDATE
-                        epochCounter++
+                        raftState.termStarted = Instant.now()
+                        raftState.nodeState = ProgramState.CANDIDATE
+                        raftState.termNumber++
                         connections.values.forEach {
                             writeToSocketChanel(
                                 it,
-                                VoteRequest(currentPort, epochCounter),
+                                VoteRequest(currentPort, raftState.termNumber),
                                 mapper
                             )
                         }
@@ -242,22 +249,22 @@ fun main(args: Array<String>) {
             }
 
             ProgramState.CANDIDATE -> {
-                if (ChronoUnit.MILLIS.between(epochStarted, Instant.now()) > ELECTION_TIMEOUT_MS) {
-                    nodeState = ProgramState.FOLLOWER
+                if (raftState.isElectionTimeout()) {
+                    raftState.nodeState = ProgramState.FOLLOWER
                     votesCounter = -1
                 }
             }
 
             ProgramState.LEADER -> {
-                if (ChronoUnit.MILLIS.between(epochStarted, Instant.now()) > (ELECTION_TIMEOUT_MS / 10)) {
+                if (raftState.isTimeToSendHeartBeat()) {
                     connections.values.forEach {
                         writeToSocketChanel(
                             it,
-                            HeartBeat(currentPort, epochCounter),
+                            HeartBeat(currentPort, raftState.termNumber),
                             mapper
                         )
                     }
-                    epochStarted = Instant.now()
+                    raftState.termStarted = Instant.now()
                 }
             }
         }
