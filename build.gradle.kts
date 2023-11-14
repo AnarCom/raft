@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "1.9.0"
     application
+    kotlin("plugin.serialization") version "1.9.0"
 }
 
 group = "ru.anarcom"
@@ -12,13 +13,7 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
-    implementation("com.fasterxml.jackson.core:jackson-core:2.15.3")
-    implementation("com.fasterxml.jackson.core:jackson-annotations:2.15.3")
-
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.3")
-
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.3")
-
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
 }
 
 tasks.test {
