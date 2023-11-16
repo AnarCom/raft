@@ -1,21 +1,35 @@
 package algorithm
 
+import dto.NodeInformation
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 class RaftState(
-    var state: NodeState = NodeState.FOLLOWER,
+    val self: NodeInformation
 ) {
     var timeStarted = Instant.now()
     var term: ULong = 0U
+
+    var electedFor: NodeInformation? = null
+    var votes = 0
+
     private val ELECTION_TIMEOUT_MS = 1000
+    var state: NodeState = NodeState.FOLLOWER
+        set(value) {
+            resetTime()
+            field = value
+        }
 
     fun resetTime() {
         timeStarted = Instant.now()
     }
 
     fun isLeaderDead() = ChronoUnit.MILLIS.between(timeStarted, Instant.now()) > ELECTION_TIMEOUT_MS
-    fun incTerm() = ++term
+    fun incTerm(): ULong {
+        electedFor = null
+        votes = 0
+        return ++term
+    }
     fun isElectionTimeout() = ChronoUnit.MILLIS.between(timeStarted, Instant.now()) > ELECTION_TIMEOUT_MS
     fun isTimeToSendHeartBeat() = ChronoUnit.MILLIS.between(timeStarted, Instant.now()) > (ELECTION_TIMEOUT_MS / 10)
 }

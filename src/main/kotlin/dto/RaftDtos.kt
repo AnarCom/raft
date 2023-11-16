@@ -37,9 +37,10 @@ class VoteResponse(
 ) : BaseMessage()
 
 @Serializable
-class LogEntry(
+class LogEntryDto(
     val command: String,
-    val arguments: Array<String>,
+    val arguments: List<String>,
+    val term: ULong
 )
 
 @Serializable
@@ -48,7 +49,7 @@ class HeartBeatRequest(
     override val term: ULong,
     val prevLogIndex: Int,
     val prevLogTerm: ULong,
-    val entries: List<LogEntry>,
+    val entries: List<LogEntryDto>,
     val leaderCommitIndex: Int,
 ) : BaseMessage()
 

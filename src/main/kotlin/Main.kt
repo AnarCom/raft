@@ -1,8 +1,8 @@
+import algorithm.LogJournal
 import algorithm.NodeState
 import algorithm.RaftState
 import dto.*
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.internal.readJson
 import utils.formatHexDump
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -45,6 +45,15 @@ fun writeToSocketChanel(
     }
 }
 
+fun writeToAll(data: BaseMessage) {
+    connections.values.forEach {
+        writeToSocketChanel(
+            it,
+            data
+        )
+    }
+}
+
 fun readFromSocket(connection: SocketChannel): BaseMessage? =
     try {
         val sizeBuffer = ByteBuffer.allocate(Int.SIZE_BYTES)
@@ -79,7 +88,7 @@ fun connectToAll(
             client.configureBlocking(false)
             writeToSocketChanel(client, HandShake(self, 0U))
             val key = client.register(selector, SelectionKey.OP_READ)
-            key.attach(ConnectionDto(it))
+            key.attach(ConnectionDto(it, 0))
             connections[it] = client
         }
     }.map {
@@ -102,7 +111,9 @@ fun main(args: Array<String>) {
         }
         .toList()
 
-    val raftState = RaftState()
+    val raftState = RaftState(nods.first())
+    val logJournal = LogJournal(raftState)
+
     val selector = Selector.open()
     val serverSocket = startServer(nods.first(), selector)
     connectToAll(nods.first(), nods.slice(1..<nods.size).toList(), selector)
@@ -132,10 +143,48 @@ fun main(args: Array<String>) {
                             is HandShake -> {
                                 println("got new connection from ${messageData.nodeInformation.host} ${messageData.nodeInformation.port}")
                                 connections[messageData.nodeInformation] = client
-                                key.attach(ConnectionDto(messageData.nodeInformation))
+                                key.attach(
+                                    ConnectionDto(messageData.nodeInformation, logJournal.getLastLogIndex())
+                                )
                             }
+
+                            is VoteRequest -> {
+                                if (raftState.term < messageData.term && raftState.electedFor == null) {
+                                    raftState.incTerm()
+                                    raftState.electedFor = (key.attachment() as ConnectionDto).connection
+                                    writeToSocketChanel(
+                                        client,
+                                        VoteResponse(raftState.self, raftState.term, true)
+                                    )
+                                } else {
+                                    writeToSocketChanel(
+                                        client,
+                                        VoteResponse(raftState.self, raftState.term, false)
+                                    )
+                                }
+                            }
+
+                            is VoteResponse -> {
+                                if (messageData.answer) {
+                                    raftState.votes++
+                                    //TODO: add +1
+                                    if (raftState.votes >= ((nods.size / 2))) {
+                                        raftState.state = NodeState.LEADER
+                                        raftState.votes = 0
+                                        println("I am now leader")
+                                    }
+                                }
+                            }
+
+                            is HeartBeatRequest -> {
+                                if(messageData.term > raftState.term) {
+                                    raftState.state = NodeState.FOLLOWER
+                                }
+                                raftState.resetTime()
+                            }
+
                             else -> {
-                                println("unsu")
+                                println("something strange")
                             }
                         }
                     }
@@ -143,19 +192,45 @@ fun main(args: Array<String>) {
                 it.remove()
             }
 
-            when(raftState.state) {
+            when (raftState.state) {
                 NodeState.LEADER -> {
+                    if (raftState.isTimeToSendHeartBeat()) {
+                        raftState.resetTime()
+                        val heartBeatRequest = HeartBeatRequest(
+                            raftState.self,
+                            raftState.term,
+                            0,
+                            0U,
+                            listOf(),
+                            0
+                        )
+                        writeToAll(heartBeatRequest)
+
+                    }
 
                 }
+
                 NodeState.CANDIDATE -> {
-
+                    if (raftState.isElectionTimeout()) {
+                        raftState.state = NodeState.FOLLOWER
+                    }
                 }
-                NodeState.FOLLOWER -> {
 
+                NodeState.FOLLOWER -> {
+                    if (raftState.isLeaderDead()) {
+                        raftState.state = NodeState.CANDIDATE
+                        raftState.incTerm()
+                        raftState.votes = 1
+                        val voteRequest = VoteRequest(
+                            raftState.self,
+                            raftState.term,
+                            0,
+                            0U
+                        )
+                        writeToAll(voteRequest)
+                    }
                 }
             }
-
         }
     }
-    //connect to other
 }
