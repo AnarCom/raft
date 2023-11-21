@@ -7,6 +7,7 @@ import kotlin.math.min
 
 class LogJournal(
     private val raftState: RaftState,
+    private val stateMachine: StateMachine,
 ) {
     private val log: MutableList<LogEntry> = mutableListOf()
 
@@ -16,10 +17,34 @@ class LogJournal(
         val term: ULong,
         val leader: NodeInformation,
         var isCommitted: Boolean = false,
+        val set: MutableSet<Pair<String, Int>> = mutableSetOf()
     ) {
         override fun toString(): String {
-            return "LogEntry(" + "command='$command', " + "arguments=$arguments, " + "term=$term, " + "leader=$leader, " + "isCommitted=$isCommitted)\n"
+            return "LogEntry(command='$command', " +
+                    "arguments=$arguments, " +
+                    "term=$term, " +
+                    "leader=$leader, " +
+                    "isCommitted=$isCommitted, " +
+                    "set=$set)"
         }
+    }
+
+    fun addEntity(
+        command: String,
+        arguments: List<String>
+    ) {
+        log.add(
+            LogEntry(
+                command,
+                arguments,
+                raftState.term,
+                raftState.self
+            )
+        )
+    }
+
+    fun lsJournal() {
+        println(log)
     }
 
     fun appendEntities(request: HeartBeatRequest): Boolean {
@@ -37,8 +62,8 @@ class LogJournal(
             return false
         }
 
-        if (log.size > request.prevLogIndex + request.entries.size) {
-            log.subList(request.prevLogIndex + request.entries.size, log.size).clear()
+        if (log.size > request.prevLogIndex) {
+            log.subList(request.prevLogIndex, log.size).clear()
         }
 
         log.addAll(request.entries.map {
@@ -48,8 +73,9 @@ class LogJournal(
         })
 
         log.forEachIndexed { index, logEntry ->
-            if (index < request.leaderCommitIndex) {
+            if (index < request.leaderCommitIndex && !logEntry.isCommitted) {
                 logEntry.isCommitted = true
+                stateMachine.applyState(logEntry.command, logEntry.arguments)
             }
         }
 
@@ -58,25 +84,47 @@ class LogJournal(
 
     private fun getCommitIndex() = log.takeWhile { it.isCommitted }.size
     fun createRequest(
-        self: NodeInformation,
         nodeIndex: Int,
     ) = log.slice(nodeIndex..<min(log.size, nodeIndex + 5)).toList().map {
         LogEntryDto(
             it.command, it.arguments, it.term
         )
     }.let {
-        HeartBeatRequest(
-            self, raftState.term, nodeIndex, log[nodeIndex - 1].term, it, getCommitIndex()
+        Pair(
+            HeartBeatRequest(
+                raftState.self, raftState.term, nodeIndex, getLastLogTerm(nodeIndex), it, getCommitIndex()
+            ),
+            min(log.size, nodeIndex + 5)
         )
     }
 
     fun getLastLogIndex() = log.size
 
-    fun getLastLogTerm(): ULong = getLastLogIndex().let {
+    fun getLastLogTerm(nodeIndex: Int? = null): ULong = (nodeIndex ?: getLastLogIndex()).let {
         if (it == 0) {
             return 0U
         } else {
             return log[it - 1].term
         }
+    }
+
+    fun processResponse(host: String, port: Int, dueIndex: Int, quota: Int) {
+        log.forEachIndexed { index, logEntry ->
+            if(!logEntry.isCommitted || index >= dueIndex) {
+                logEntry.set.add(Pair(host, port))
+                if(logEntry.set.size + 1 >= quota) {
+                    logEntry.set.clear()
+                    logEntry.isCommitted = true
+                    stateMachine.applyState(logEntry.command, logEntry.arguments)
+                }
+            }
+        }
+    }
+
+
+    fun clearLog() {
+        println("test command")
+        log.clear()
+        println("log size is not ${log.size}")
     }
 }

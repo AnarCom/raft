@@ -1,6 +1,7 @@
 import algorithm.LogJournal
 import algorithm.NodeState
 import algorithm.RaftState
+import algorithm.StateMachine
 import dto.*
 import kotlinx.serialization.json.Json
 import utils.formatHexDump
@@ -45,6 +46,15 @@ fun writeToSocketChanel(
     }
 }
 
+fun writeToSelectionKey(
+    selectionKey: SelectionKey,
+    data: BaseMessage
+) {
+    val chanel = selectionKey.channel() as SocketChannel
+    writeToSocketChanel(chanel, data)
+
+}
+
 fun writeToAll(data: BaseMessage) {
     connections.values.forEach {
         val chanel = it.channel() as SocketChannel
@@ -68,7 +78,7 @@ fun readFromSocket(connection: SocketChannel): BaseMessage? =
             bufferForJson.flip()
             val str = String(bufferForJson.array().filter { it != 0.toByte() }.toByteArray())
             Json.decodeFromString<BaseMessage>(str).apply {
-                if (this !is HeartBeatRequest) {
+                if (this !is HeartBeatRequest && this !is HeartBeatResponse) {
                     println(str)
                 }
             }
@@ -112,8 +122,13 @@ fun main(args: Array<String>) {
         }
         .toList()
 
+    val quota = (nods.size / 2)
+
     val raftState = RaftState(nods.first())
-    val logJournal = LogJournal(raftState)
+    val stateMachine = StateMachine()
+    val logJournal = LogJournal(raftState, stateMachine)
+
+    val bufferedStdin = System.`in`.bufferedReader()
 
     val selector = Selector.open()
     val serverSocket = startServer(nods.first(), selector)
@@ -168,8 +183,7 @@ fun main(args: Array<String>) {
                             is VoteResponse -> {
                                 if (messageData.answer) {
                                     raftState.votes++
-                                    //TODO: add +1
-                                    if (raftState.votes >= ((nods.size / 2))) {
+                                    if (raftState.votes >= quota) {
                                         raftState.state = NodeState.LEADER
                                         raftState.votes = 0
                                         println("I am now leader")
@@ -181,7 +195,44 @@ fun main(args: Array<String>) {
                                 if (messageData.term > raftState.term) {
                                     raftState.state = NodeState.FOLLOWER
                                 }
+                                val ans = logJournal.appendEntities(messageData)
                                 raftState.resetTime()
+                                writeToSelectionKey(
+                                    key,
+                                    HeartBeatResponse(
+                                        raftState.self,
+                                        raftState.term,
+                                        ans
+                                    )
+                                )
+                            }
+
+                            is HeartBeatResponse -> {
+                                val attachment = connections.keys.filter { node ->
+                                    node.host == messageData.nodeInformation.host &&
+                                            node.port == messageData.nodeInformation.port
+                                }.map { node ->
+                                    connections[node]
+                                }.first()!!.attachment()
+
+                                val data = attachment.castToConnectionDto()
+
+                                if (data.lastSentFor == null) {
+                                    TODO("last send for cannot be null")
+                                }
+
+                                if (!messageData.success) {
+                                    data.nodeIndex--
+                                    data.lastSentFor = null
+                                } else {
+                                    data.nodeIndex = data.lastSentFor!!
+                                    logJournal.processResponse(
+                                        data.connection.host,
+                                        data.connection.port,
+                                        data.nodeIndex,
+                                        quota
+                                    )
+                                }
                             }
 
                             else -> {
@@ -197,18 +248,17 @@ fun main(args: Array<String>) {
                 NodeState.LEADER -> {
                     if (raftState.isTimeToSendHeartBeat()) {
                         raftState.resetTime()
-                        val heartBeatRequest = HeartBeatRequest(
-                            raftState.self,
-                            raftState.term,
-                            0,
-                            0U,
-                            listOf(),
-                            0
-                        )
-                        writeToAll(heartBeatRequest)
-
+                        connections.values.forEach { key ->
+                            val (request, nextIndex) = logJournal.createRequest(
+                                key.attachment().castToConnectionDto().nodeIndex
+                            )
+                            key.attachment().castToConnectionDto().lastSentFor = nextIndex
+                            writeToSelectionKey(
+                                key,
+                                request,
+                            )
+                        }
                     }
-
                 }
 
                 NodeState.CANDIDATE -> {
@@ -230,6 +280,55 @@ fun main(args: Array<String>) {
                         )
                         writeToAll(voteRequest)
                     }
+                }
+            }
+        }
+        if (bufferedStdin.ready()) {
+            val line = bufferedStdin.readLine()
+            val (command, arguments) = line.split(" ").let {
+                Pair(
+                    it.first(),
+                    if (it.size > 1) {
+                        it.slice(1..<it.size).toList()
+                    } else {
+                        emptyList()
+                    }
+                )
+            }
+
+            when (command) {
+                "set" -> {
+                    logJournal.addEntity(
+                        command,
+                        arguments
+                    )
+                }
+
+                "get" -> {
+                    println(stateMachine.getFromState(arguments.first()))
+                }
+
+                "ls" -> {
+                    logJournal.lsJournal()
+                }
+
+                "clear" -> {
+                    logJournal.clearLog()
+                }
+
+                "cas" -> {
+                    logJournal.addEntity(command, arguments)
+                }
+
+                "help" -> {
+                    println("set\tkey value")
+                    println("get\tkey")
+                    println("clear")
+                    println("cas\tkey\told_value\tnew_value")
+                }
+
+                else -> {
+                    println("Unsupported operation")
                 }
             }
         }

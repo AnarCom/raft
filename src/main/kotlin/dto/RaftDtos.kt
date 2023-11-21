@@ -7,7 +7,11 @@ import kotlinx.serialization.json.Json
 class NodeInformation(
     val port: Int,
     val host: String,
-)
+) {
+    override fun toString(): String {
+        return "NodeInformation(port=$port, host='$host')"
+    }
+}
 
 @Serializable
 sealed class BaseMessage {
