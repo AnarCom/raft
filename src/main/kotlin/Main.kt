@@ -122,7 +122,7 @@ fun main(args: Array<String>) {
         }
         .toList()
 
-    val quota = (nods.size / 2)
+    val quota = (nods.size / 2) + 1
 
     val raftState = RaftState(nods.first())
     val stateMachine = StateMachine()
@@ -165,7 +165,11 @@ fun main(args: Array<String>) {
                             }
 
                             is VoteRequest -> {
-                                if (raftState.term < messageData.term && raftState.electedFor == null) {
+                                if (
+                                    raftState.term < messageData.term &&
+                                    raftState.electedFor == null &&
+                                    messageData.lastLogIndex >= logJournal.getLastLogIndex()
+                                    ) {
                                     raftState.incTerm()
                                     raftState.electedFor = (key.attachment() as ConnectionDto).connection
                                     writeToSocketChanel(
@@ -275,8 +279,8 @@ fun main(args: Array<String>) {
                         val voteRequest = VoteRequest(
                             raftState.self,
                             raftState.term,
-                            0,
-                            0U
+                            logJournal.getLastLogIndex(),
+                            logJournal.getLastLogTerm()
                         )
                         writeToAll(voteRequest)
                     }
@@ -314,6 +318,7 @@ fun main(args: Array<String>) {
 
                 "clear" -> {
                     logJournal.clearLog()
+                    stateMachine.clearState()
                 }
 
                 "cas" -> {
