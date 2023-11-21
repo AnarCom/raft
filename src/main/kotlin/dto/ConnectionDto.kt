@@ -4,5 +4,8 @@ import java.nio.channels.SelectionKey
 
 class ConnectionDto(
     val connection: NodeInformation,
-    val nodeIndex: Int
+    var selectionKey: SelectionKey,
+    val nodeIndex: Int = 0,
 )
+
+fun Any.castToConnectionDto() = this as ConnectionDto

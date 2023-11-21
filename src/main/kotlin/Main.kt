@@ -47,8 +47,9 @@ fun writeToSocketChanel(
 
 fun writeToAll(data: BaseMessage) {
     connections.values.forEach {
+        val chanel = it.channel() as SocketChannel
         writeToSocketChanel(
-            it,
+            chanel,
             data
         )
     }
@@ -88,8 +89,8 @@ fun connectToAll(
             client.configureBlocking(false)
             writeToSocketChanel(client, HandShake(self, 0U))
             val key = client.register(selector, SelectionKey.OP_READ)
-            key.attach(ConnectionDto(it, 0))
-            connections[it] = client
+            key.attach(ConnectionDto(it, key))
+            connections[it] = key
         }
     }.map {
         try {
@@ -100,7 +101,7 @@ fun connectToAll(
     }
 }
 
-val connections = ConcurrentHashMap<NodeInformation, SocketChannel>()
+val connections = ConcurrentHashMap<NodeInformation, SelectionKey>()
 
 fun main(args: Array<String>) {
     val nods = (0..<args.size / 2)
@@ -142,9 +143,9 @@ fun main(args: Array<String>) {
                         when (messageData) {
                             is HandShake -> {
                                 println("got new connection from ${messageData.nodeInformation.host} ${messageData.nodeInformation.port}")
-                                connections[messageData.nodeInformation] = client
+                                connections[messageData.nodeInformation] = key
                                 key.attach(
-                                    ConnectionDto(messageData.nodeInformation, logJournal.getLastLogIndex())
+                                    ConnectionDto(messageData.nodeInformation, key, logJournal.getLastLogIndex())
                                 )
                             }
 
@@ -177,7 +178,7 @@ fun main(args: Array<String>) {
                             }
 
                             is HeartBeatRequest -> {
-                                if(messageData.term > raftState.term) {
+                                if (messageData.term > raftState.term) {
                                     raftState.state = NodeState.FOLLOWER
                                 }
                                 raftState.resetTime()

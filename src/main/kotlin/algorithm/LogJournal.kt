@@ -18,12 +18,7 @@ class LogJournal(
         var isCommitted: Boolean = false,
     ) {
         override fun toString(): String {
-            return "LogEntry(" +
-                    "command='$command', " +
-                    "arguments=$arguments, " +
-                    "term=$term, " +
-                    "leader=$leader, " +
-                    "isCommitted=$isCommitted)\n"
+            return "LogEntry(" + "command='$command', " + "arguments=$arguments, " + "term=$term, " + "leader=$leader, " + "isCommitted=$isCommitted)\n"
         }
     }
 
@@ -36,7 +31,8 @@ class LogJournal(
         // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
         if (
             log.size < request.prevLogIndex ||
-            log[request.prevLogIndex - 1].term != request.prevLogTerm
+            (request.prevLogIndex > 0 &&
+                    log[request.prevLogIndex - 1].term != request.prevLogTerm)
         ) {
             return false
         }
@@ -45,17 +41,11 @@ class LogJournal(
             log.subList(request.prevLogIndex + request.entries.size, log.size).clear()
         }
 
-        log.addAll(
-            request.entries.map {
-                LogEntry(
-                    it.command,
-                    it.arguments,
-                    it.term,
-                    request.nodeInformation,
-                    isCommitted = false
-                )
-            }
-        )
+        log.addAll(request.entries.map {
+            LogEntry(
+                it.command, it.arguments, it.term, request.nodeInformation, isCommitted = false
+            )
+        })
 
         log.forEachIndexed { index, logEntry ->
             if (index < request.leaderCommitIndex) {
@@ -72,18 +62,11 @@ class LogJournal(
         nodeIndex: Int,
     ) = log.slice(nodeIndex..<min(log.size, nodeIndex + 5)).toList().map {
         LogEntryDto(
-            it.command,
-            it.arguments,
-            it.term
+            it.command, it.arguments, it.term
         )
     }.let {
         HeartBeatRequest(
-            self,
-            raftState.term,
-            nodeIndex,
-            log[nodeIndex-1].term,
-            it,
-            getCommitIndex()
+            self, raftState.term, nodeIndex, log[nodeIndex - 1].term, it, getCommitIndex()
         )
     }
 
