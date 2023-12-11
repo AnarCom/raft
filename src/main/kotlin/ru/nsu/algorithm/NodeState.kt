@@ -1,4 +1,4 @@
-package algorithm
+package ru.nsu.algorithm
 
 enum class NodeState {
     LEADER,

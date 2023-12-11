@@ -1,36 +1,44 @@
+val ktor_version: String by project
+val kotlin_version: String by project
+val logback_version: String by project
+
 plugins {
-    kotlin("jvm") version "1.9.0"
-    application
-    kotlin("plugin.serialization") version "1.9.0"
+    kotlin("jvm") version "1.9.21"
+    id("io.ktor.plugin") version "2.3.7"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.21"
 }
 
-group = "ru.anarcom"
-version = "1.0-SNAPSHOT"
+group = "ru.nsu"
+version = "0.0.1"
+
+application {
+    mainClass.set("ru.nsu.ApplicationKt")
+
+    val isDevelopment: Boolean = project.ext.has("development")
+    applicationDefaultJvmArgs = listOf("-Dio.ktor.development=$isDevelopment")
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    testImplementation(kotlin("test"))
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-}
-
-tasks.test {
-    useJUnitPlatform()
-}
-
-kotlin {
-    jvmToolchain(8)
+    implementation("io.ktor:ktor-server-core-jvm")
+    implementation("io.ktor:ktor-server-content-negotiation-jvm")
+    implementation("io.ktor:ktor-serialization-kotlinx-json-jvm")
+    implementation("io.ktor:ktor-server-netty-jvm")
+    implementation("ch.qos.logback:logback-classic:$logback_version")
+    testImplementation("io.ktor:ktor-server-tests-jvm")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
 }
 
 application {
-    mainClass.set("MainKt")
+    mainClass.set("ru.nsu.ApplicationKt")
 }
 
 tasks.jar {
     manifest {
-        attributes["Main-Class"] = "MainKt"
+        attributes["Main-Class"] = "ru.nsu.ApplicationKt"
     }
 
     val dependencies = configurations
@@ -39,5 +47,6 @@ tasks.jar {
         .map { zipTree(it) }
     from(dependencies)
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
 }
+
+

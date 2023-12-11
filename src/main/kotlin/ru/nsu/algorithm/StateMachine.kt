@@ -1,4 +1,4 @@
-package algorithm
+package ru.nsu.algorithm
 
 class StateMachine {
     private val map: MutableMap<String, String> = mutableMapOf()

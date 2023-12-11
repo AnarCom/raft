@@ -1,8 +1,9 @@
-package algorithm
+package ru.nsu.algorithm
 
-import dto.HeartBeatRequest
-import dto.LogEntryDto
-import dto.NodeInformation
+import kotlinx.serialization.Serializable
+import ru.nsu.dto.HeartBeatRequest
+import ru.nsu.dto.LogEntryDto
+import ru.nsu.dto.NodeInformation
 import kotlin.math.min
 
 class LogJournal(
@@ -11,7 +12,8 @@ class LogJournal(
 ) {
     private val log: MutableList<LogEntry> = mutableListOf()
 
-    private data class LogEntry(
+    @Serializable
+    data class LogEntry(
         val command: String,
         val arguments: List<String>,
         val term: ULong,
@@ -43,9 +45,7 @@ class LogJournal(
         )
     }
 
-    fun lsJournal() {
-        println(log)
-    }
+    fun lsJournal() = log.toList()
 
     fun appendEntities(request: HeartBeatRequest): Boolean {
         // Reply false if term < currentTerm
@@ -85,18 +85,23 @@ class LogJournal(
     private fun getCommitIndex() = log.takeWhile { it.isCommitted }.size
     fun createRequest(
         nodeIndex: Int,
-    ) = log.slice(nodeIndex..<min(log.size, nodeIndex + 5)).toList().map {
-        LogEntryDto(
-            it.command, it.arguments, it.term
-        )
-    }.let {
-        Pair(
-            HeartBeatRequest(
-                raftState.self, raftState.term, nodeIndex, getLastLogTerm(nodeIndex), it, getCommitIndex()
-            ),
-            min(log.size, nodeIndex + 5)
-        )
+    ): Pair<HeartBeatRequest, Int> {
+//        println("nod index: $nodeIndex, logSize: ${log.size}, nodIndex: ${nodeIndex + 5}")
+        val res = log.slice(nodeIndex..<min(log.size, nodeIndex + 5)).toList().map {
+            LogEntryDto(
+                it.command, it.arguments, it.term
+            )
+        }.let {
+            Pair(
+                HeartBeatRequest(
+                    raftState.self, raftState.term, nodeIndex, getLastLogTerm(nodeIndex), it, getCommitIndex()
+                ),
+                min(log.size, nodeIndex + 5)
+            )
+        }
+        return res
     }
+
 
     fun getLastLogIndex() = log.size
 
@@ -110,9 +115,9 @@ class LogJournal(
 
     fun processResponse(host: String, port: Int, dueIndex: Int, quota: Int) {
         log.forEachIndexed { index, logEntry ->
-            if(!logEntry.isCommitted || index >= dueIndex) {
+            if (!logEntry.isCommitted || index >= dueIndex) {
                 logEntry.set.add(Pair(host, port))
-                if(logEntry.set.size + 1 >= quota) {
+                if (logEntry.set.size + 1 >= quota) {
                     logEntry.set.clear()
                     logEntry.isCommitted = true
                     stateMachine.applyState(logEntry.command, logEntry.arguments)

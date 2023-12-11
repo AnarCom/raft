@@ -1,4 +1,4 @@
-package utils
+package ru.nsu.utils
 
 import java.io.UnsupportedEncodingException
 import kotlin.math.min

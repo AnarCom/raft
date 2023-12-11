@@ -1,4 +1,4 @@
-package dto
+package ru.nsu.dto
 
 import java.nio.channels.SelectionKey
 

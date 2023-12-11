@@ -1,4 +1,4 @@
-package dto
+package ru.nsu.dto
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

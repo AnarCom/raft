@@ -1,6 +1,6 @@
-package algorithm
+package ru.nsu.algorithm
 
-import dto.NodeInformation
+import ru.nsu.dto.NodeInformation
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -9,6 +9,7 @@ class RaftState(
 ) {
     var timeStarted = Instant.now()
     var term: ULong = 0U
+    lateinit var leader: NodeInformation
 
     var electedFor: NodeInformation? = null
     var votes = 0
@@ -17,6 +18,9 @@ class RaftState(
     var state: NodeState = NodeState.FOLLOWER
         set(value) {
             resetTime()
+            if(value != field) {
+                println(value)
+            }
             field = value
         }
 
