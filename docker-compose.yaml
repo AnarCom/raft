@@ -22,8 +22,8 @@ services:
       - ANOTHER_SERVERS=second_node:8085,first_node:8085,third_node:8085
     networks:
       - net
-    depends_on:
-     - first_node
+#    depends_on:
+#     - first_node
   third_node:
     build:
       context: .
@@ -34,8 +34,8 @@ services:
       - ANOTHER_SERVERS=third_node:8085,second_node:8085,first_node:8085
     networks:
       - net
-    depends_on:
-     - second_node
+#    depends_on:
+#     - second_node
 
 
 networks:

@@ -19,15 +19,29 @@ fun Application.configureRouting(blockingDeque: LinkedBlockingDeque<String>, raf
         }
 
         post("/storage/{key}/{value}") {
-            if(raftMain.raftState.state != NodeState.LEADER) {
+            if (raftMain.raftState.state != NodeState.LEADER) {
                 call.respondText("Leader is ${raftMain.raftState.leader}")
             }
             blockingDeque.add("set ${call.parameters["key"]} ${call.parameters["value"]}")
             call.respondText("OK")
         }
 
+        post("/lock/acquire") {
+            blockingDeque.add("acquire_lock")
+            call.respondText("request created")
+        }
+
+        post("/lock/release") {
+            blockingDeque.add("release_lock")
+            call.respondText("request created")
+        }
+
         delete("/log") {
 
+        }
+
+        get("/storage") {
+            call.respond(raftMain.stateMachine.map)
         }
 
         get("/log") {

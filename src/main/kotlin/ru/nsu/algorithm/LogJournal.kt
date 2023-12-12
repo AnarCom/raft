@@ -11,6 +11,7 @@ class LogJournal(
     private val stateMachine: StateMachine,
 ) {
     private val log: MutableList<LogEntry> = mutableListOf()
+    val transferToMaster: MutableList<Pair<String, List<String>>> = mutableListOf()
 
     @Serializable
     data class LogEntry(
@@ -31,18 +32,24 @@ class LogJournal(
         }
     }
 
+    private var isLogActual = true
+    fun isLogActual() = raftState.state == NodeState.LEADER || isLogActual
     fun addEntity(
         command: String,
         arguments: List<String>
     ) {
-        log.add(
-            LogEntry(
-                command,
-                arguments,
-                raftState.term,
-                raftState.self
+        if (raftState.state != NodeState.LEADER) {
+            transferToMaster.add(Pair(command, arguments))
+        } else {
+            log.add(
+                LogEntry(
+                    command,
+                    arguments,
+                    raftState.term,
+                    raftState.self
+                )
             )
-        )
+        }
     }
 
     fun lsJournal() = log.toList()
@@ -78,7 +85,6 @@ class LogJournal(
                 stateMachine.applyState(logEntry.command, logEntry.arguments)
             }
         }
-
         return true
     }
 
@@ -86,7 +92,6 @@ class LogJournal(
     fun createRequest(
         nodeIndex: Int,
     ): Pair<HeartBeatRequest, Int> {
-//        println("nod index: $nodeIndex, logSize: ${log.size}, nodIndex: ${nodeIndex + 5}")
         val res = log.slice(nodeIndex..<min(log.size, nodeIndex + 5)).toList().map {
             LogEntryDto(
                 it.command, it.arguments, it.term

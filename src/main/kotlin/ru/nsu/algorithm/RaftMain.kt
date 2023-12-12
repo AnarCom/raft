@@ -12,17 +12,19 @@ import java.nio.channels.SocketChannel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingDeque
 import kotlin.concurrent.thread
+import kotlin.math.log
 
 
 class RaftMain(
     private val self: NodeInformation,
     private val others: List<NodeInformation>,
     private val serverPort: Int,
-    private val blockingDeque: LinkedBlockingDeque<String>
+    private val queueToMaster: LinkedBlockingDeque<String>,
 ) : Thread() {
     val raftState = RaftState(self)
     val stateMachine = StateMachine()
     val logJournal = LogJournal(raftState, stateMachine)
+    private val lockManager = LockManager(logJournal, raftState, stateMachine)
 
     override fun run() {
         sleep((serverPort.toLong() % 10) * 1000)
@@ -83,7 +85,9 @@ class RaftMain(
                                         if (raftState.votes >= quota) {
                                             raftState.state = NodeState.LEADER
                                             raftState.votes = 0
-                                            println("I am now leader")
+                                            logJournal.transferToMaster.forEach {
+                                                logJournal.addEntity(it.first, it.second)
+                                            }
                                         }
                                     }
                                 }
@@ -97,9 +101,11 @@ class RaftMain(
                                     raftState.resetTime()
                                     writeToSelectionKey(
                                         key, HeartBeatResponse(
-                                            raftState.self, raftState.term, ans
+                                            raftState.self, raftState.term, ans,
+                                            logJournal.transferToMaster
                                         )
                                     )
+                                    logJournal.transferToMaster.clear()
                                 }
 
                                 is HeartBeatResponse -> {
@@ -108,23 +114,30 @@ class RaftMain(
                                     }.map { node ->
                                         connections[node]
                                     }.first()!!.attachment()
+                                    if (raftState.state == NodeState.LEADER) {
+                                        val data = attachment.castToConnectionDto()
 
-                                    val data = attachment.castToConnectionDto()
-
-                                    if (data.lastSentFor == null) {
-                                        TODO("last send for cannot be null")
-                                    }
-
-                                    if (!messageData.success) {
-                                        if (data.nodeIndex > 0) {
-                                            data.nodeIndex--
+                                        if (data.lastSentFor == null) {
+                                            TODO("last send for cannot be null")
                                         }
-                                        data.lastSentFor = null
+
+                                        if (!messageData.success) {
+                                            if (data.nodeIndex > 0) {
+                                                data.nodeIndex--
+                                            }
+                                            data.lastSentFor = null
+                                        } else {
+                                            data.nodeIndex = data.lastSentFor!!
+                                            logJournal.processResponse(
+                                                data.connection.host, data.connection.port, data.nodeIndex, quota
+                                            )
+                                        }
+
+                                        messageData.addToLeader.forEach {
+                                            logJournal.addEntity(it.first, it.second)
+                                        }
                                     } else {
-                                        data.nodeIndex = data.lastSentFor!!
-                                        logJournal.processResponse(
-                                            data.connection.host, data.connection.port, data.nodeIndex, quota
-                                        )
+                                        logJournal.transferToMaster.addAll(messageData.addToLeader)
                                     }
                                 }
                             }
@@ -172,8 +185,8 @@ class RaftMain(
                     }
                 }
             }
-            if (blockingDeque.isNotEmpty()) {
-                val line = blockingDeque.take()
+            if (queueToMaster.isNotEmpty()) {
+                val line = queueToMaster.take()
                 val (command, arguments) = line.split(" ").let {
                     Pair(
                         it.first(), if (it.size > 1) {
@@ -190,6 +203,20 @@ class RaftMain(
                         )
                     }
 
+                    "acquire_lock" -> {
+                        logJournal.addEntity(
+                            "set_if_null",
+                            listOf("locked_by", lockManager.getLockNameWithUntilTime())
+                        )
+                    }
+
+                    "release_lock" -> {
+                        logJournal.addEntity(
+                            "delete_key",
+                            listOf("locked_by")
+                        )
+                    }
+
                     "clear" -> {
                         logJournal.clearLog()
                         stateMachine.clearState()
@@ -200,6 +227,7 @@ class RaftMain(
                     }
                 }
             }
+            lockManager.lockLogic()
         }
     }
 

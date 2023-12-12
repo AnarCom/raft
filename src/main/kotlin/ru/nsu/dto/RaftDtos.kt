@@ -61,7 +61,8 @@ class HeartBeatRequest(
 class HeartBeatResponse(
     override val nodeInformation: NodeInformation,
     override val term: ULong,
-    val success: Boolean
+    val success: Boolean,
+    val addToLeader: List<Pair<String, List<String>>>,
 ) : BaseMessage()
 
 fun serialize(t: BaseMessage) = Json.encodeToString(BaseMessage.serializer(), t)
